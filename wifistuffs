@@ -1,0 +1,135 @@
+#!/bin/bash
+
+function lawloop {
+    cmd=\'$1\'
+    wlancount=$(($(cat $HOME/.wlancount 2> /dev/null)-1))
+
+    if [[ -z $wlancount || ! -e $HOME/.wlancount ]]; then
+        echo Set wlan count first with 'setcount'
+        return
+    fi
+
+    for i in `seq 0 $wlancount`;
+    do
+        cur="`echo \'$cmd\' | sed "s%###%wlan$i%"`"
+        echo running "$cur"
+        sh -c "$cur"
+    done
+}
+
+function stop_all {
+    echo Stopping wlans
+    lawloop "airmon-ng stop ### > /dev/null"
+    echo Done
+}
+
+function start_all {
+    echo Starting wlans
+    lawloop "airmon-ng start ### > /dev/null"
+    echo Done
+}
+
+function reset_wifi {
+    stop_all
+    echo "Bringing wlan's link down and back up"
+    lawloop "ip link set ### down"
+    sleep 1
+    lawloop "ip link set ### up"
+    echo "Restarting NetworkManager"
+    systemctl restart NetworkManager
+    echo Done
+}
+
+function merge_caps {
+    LOCS=$(whereis mergecap | awk '{print $2}')
+    echo "Assuming all caps have been fixed and are valid"
+    if [ -f $LOCS ]; then
+        echo -n "Merging all *caps in `pwd` - Saving to mergecap.pcap"
+        mergecap -F pcap `ls $(pwd)/*.pcap | tr '\n' ' '` -w mergecap.pcap 
+    fi
+}
+
+function fix_caps {
+    for i in $(ls *.*cap)
+    do
+        TMP=$i
+        echo Fixing $i
+        pcapfix $i -o $i.fix > /dev/null
+        mv $i.fix $i 2> /dev/null
+    done
+    echo "Done"
+}
+
+function pyrit_peep {
+    for i in $(ls *.*cap)
+    do
+        echo Analyzing and interpreting $i
+        TEST=$(pyrit -r $i analyze 2>&1 | grep spread)
+        if [ ${#TEST} -gt 0 ]; then
+            echo "--> $i has valid handshakes"
+        fi
+    done
+}
+
+function bolivi_a {
+    FONT=$(ls /usr/share/figlet/*.tlf | sort -R | tail -n 1)
+    stop_all
+    echo "Setting us to "
+    echo -n BoLiViAsTyLe | figlet -t -f "$FONT"
+    iw reg set BO
+    echo "Kicking up our txpower (in theory)"
+    lawloop "iw dev ### set txpower fixed 4000"
+    start_all
+}
+
+function set_count {
+    wlan_count=$1
+    if [[ -z $wlan_count ]]; then
+        echo Input number of wlans:
+        echo -n Input:\ 
+        read wlan_count
+    fi
+
+    RGCHECK='^[0-9]+$'
+    if [[ $wlan_count =~ $RGCHECK ]]; then
+        echo $wlan_count > $HOME/.wlancount
+        echo Wlan count set to $wlan_count
+        exit 0
+    fi
+
+    echo Parsing error: $wlan_count
+    exit 1
+}
+
+case $1 in
+    stopall)
+        stop_all
+        ;;
+    startall)
+        start_all
+        ;;
+    resetwifi)
+        reset_wifi
+        ;;
+    mergecaps)
+        merge_caps
+        ;;
+    fixcaps)
+        fix_caps
+        ;;
+    pyritpeep)
+        pyrit_peep
+        ;;
+    BoLiViA)
+        bolivi_a
+        ;;
+    setcount)
+        set_count "$2"
+        ;;
+    help)
+        echo ":D"
+        ;;
+    *)
+        echo "i dono"
+        ;;
+esac
